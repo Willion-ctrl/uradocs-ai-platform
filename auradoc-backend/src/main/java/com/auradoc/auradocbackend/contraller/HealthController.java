@@ -1,6 +1,7 @@
 package com.auradoc.auradocbackend.contraller;
 
 
+import com.auradoc.auradocbackend.common.Result;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -14,11 +15,11 @@ import java.util.Map;
 public class HealthController {
 
     @GetMapping
-    public Map<String, Object> checkHealth() {
+    public Result<?> checkHealth() {
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("status", "UP");
-        response.put("service", "auradocs-backend");
+        response.put("service", "auradoc-backend");
         response.put("timestamp", LocalDateTime.now().toString());
-        return response;
+        return Result.success(response);
     }
 }

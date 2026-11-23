@@ -1,5 +1,8 @@
 package com.auradoc.auradocbackend.contraller;
 
+import com.auradoc.auradocbackend.common.BusinessException;
+import com.auradoc.auradocbackend.common.ErrorCode;
+import com.auradoc.auradocbackend.common.Result;
 import com.auradoc.auradocbackend.entity.KbDoc;
 import com.auradoc.auradocbackend.mapper.KbDocMapper;
 import lombok.RequiredArgsConstructor;
@@ -16,7 +19,11 @@ public class KbDocController {
     private final KbDocMapper kbDocMapper;
 
     @GetMapping("/{id}")
-    public KbDoc getDocById(@PathVariable Long id) {
-        return kbDocMapper.selectById(id);
+    public Result<KbDoc> getDocById(@PathVariable Long id) {
+        KbDoc doc = kbDocMapper.selectById(id);
+        if (doc == null) {
+            throw new BusinessException(ErrorCode.DOC_NOT_FOUND);
+        }
+        return Result.success(doc);
     }
 }
