@@ -1,4 +1,4 @@
-package com.auradoc.auradocbackend.contraller;
+package com.auradoc.auradocbackend.controller;
 
 import com.auradoc.auradocbackend.common.BusinessException;
 import com.auradoc.auradocbackend.common.ErrorCode;
