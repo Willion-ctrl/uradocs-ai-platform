@@ -1,0 +1,21 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: auradocs-backend
+  profiles:
+    active: local # 默认激活本地配置，上线时可通过环境变量切换为 prod
+
+mybatis-plus:
+  configuration:
+    # 开启下划线转驼峰（如 content_md 自动映射到 contentMd）
+    map-underscore-to-camel-case: true
+    # 开发阶段在控制台打印真实执行的 SQL，排错极度方便
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      # 全局逻辑删除配置（对应建表脚本里的 is_deleted）
+      logic-delete-field: isDeleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
