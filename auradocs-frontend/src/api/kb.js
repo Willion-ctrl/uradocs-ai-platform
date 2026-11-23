@@ -11,3 +11,8 @@ export const getDocApi = (id) => request.get(`/docs/${id}`)
 export const createDocApi = (data) => request.post('/docs', data)
 export const updateDocApi = (id, data) => request.put(`/docs/${id}`, data)
 export const deleteDocApi = (id) => request.delete(`/docs/${id}`)
+
+// ===== AI 摘要与多字段检索 =====
+export const generateDocSummaryApi = (id) => request.post(`/docs/${id}/summary`)
+export const searchDocsApi = (spaceId, keyword) =>
+  request.get('/docs/search', { params: { spaceId, keyword } })

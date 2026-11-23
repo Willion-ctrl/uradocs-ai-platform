@@ -1,5 +1,7 @@
 package com.auradoc.auradocbackend.service;
 
+import com.auradoc.auradocbackend.common.BusinessException;
+import com.auradoc.auradocbackend.common.ErrorCode;
 import com.auradoc.auradocbackend.entity.AiChatLog;
 import com.auradoc.auradocbackend.entity.KbDoc;
 import com.auradoc.auradocbackend.mapper.AiChatLogMapper;
@@ -164,5 +166,39 @@ public class AiChatService {
         chatLog.setModelName(model);
         chatLog.setTokenUsage(0);
         aiChatLogMapper.insert(chatLog);
+    }
+    /** 同步调用大模型生成文档摘要（非流式，用于持久化到 kb_doc.ai_summary） */
+    public String generateSummary(String title, String contentMd) {
+        try {
+            Map<String, Object> body = new HashMap<>();
+            body.put("model", model);
+            body.put("stream", false);
+            body.put("messages", List.of(
+                    Map.of("role", "system", "content", "你是一个专业的技术文档助手。请用简洁的中文为以下文档生成 100 字以内的核心摘要，直接输出摘要内容，不要带“本文介绍了”等套话。"),
+                    Map.of("role", "user", "content", "文档标题：" + title + "\n\n文档内容：\n" + contentMd)
+            ));
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(baseUrl + "/chat/completions"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .timeout(Duration.ofSeconds(30))
+                    .POST(HttpRequest.BodyPublishers.ofString(objectMapper.writeValueAsString(body)))
+                    .build();
+
+            HttpResponse<String> response = HttpClient.newHttpClient()
+                    .send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "AI 摘要服务响应异常: HTTP " + response.statusCode());
+            }
+
+            JsonNode root = objectMapper.readTree(response.body());
+            return root.path("choices").get(0).path("message").path("content").asText().trim();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(ErrorCode.AI_SERVICE_ERROR, "生成 AI 摘要失败: " + e.getMessage());
+        }
     }
 }

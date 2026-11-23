@@ -8,7 +8,7 @@
         <el-select
           v-model="currentSpaceId"
           placeholder="选择知识空间"
-          style="width: 200px"
+          style="width: 210px"
           @change="handleSpaceChange"
         >
           <el-option
@@ -31,7 +31,7 @@
 
     <!-- 主体三栏 -->
     <div class="main-body">
-      <!-- 左栏：文档目录 -->
+      <!-- 左栏：搜索 + 文档目录 -->
       <aside class="left-sidebar">
         <div class="sidebar-header">
           <span>文档列表</span>
@@ -46,8 +46,25 @@
           </el-button>
         </div>
 
+        <div class="sidebar-search">
+          <el-input
+            v-model="searchKeyword"
+            placeholder="搜索标题 / 正文 / AI摘要..."
+            prefix-icon="Search"
+            size="small"
+            clearable
+            :disabled="!currentSpaceId"
+            @input="handleSearchDocs"
+            @clear="handleSearchDocs"
+          />
+        </div>
+
         <el-scrollbar class="doc-list">
-          <el-empty v-if="docs.length === 0" description="暂无文档" :image-size="60" />
+          <el-empty
+            v-if="docs.length === 0"
+            :description="searchKeyword ? '未找到匹配文档' : '暂无文档'"
+            :image-size="60"
+          />
           <div
             v-for="doc in docs"
             :key="doc.id"
@@ -57,12 +74,21 @@
           >
             <el-icon><Document /></el-icon>
             <span class="doc-title">{{ doc.title }}</span>
+            <el-tag
+              v-if="doc.aiSummary"
+              size="small"
+              type="primary"
+              effect="plain"
+              class="summary-dot"
+            >
+              AI
+            </el-tag>
             <el-icon class="doc-delete" @click.stop="handleDeleteDoc(doc)"><Delete /></el-icon>
           </div>
         </el-scrollbar>
       </aside>
 
-      <!-- 中栏：Markdown 编辑器与预览 -->
+      <!-- 中栏：Markdown 编辑器 + AI 摘要横幅 -->
       <main class="center-editor" @keydown.ctrl.s.prevent="handleSaveDoc">
         <template v-if="currentDoc">
           <div class="editor-toolbar">
@@ -77,6 +103,16 @@
                 <el-radio-button value="preview">预览</el-radio-button>
               </el-radio-group>
               <el-button
+                type="success"
+                plain
+                size="small"
+                :loading="summarizing"
+                icon="MagicStick"
+                @click="handleGenerateSummary"
+              >
+                {{ currentDoc.aiSummary ? '重新生成摘要' : 'AI 摘要' }}
+              </el-button>
+              <el-button
                 type="primary"
                 size="small"
                 :loading="saving"
@@ -86,6 +122,15 @@
                 保存
               </el-button>
             </div>
+          </div>
+
+          <!-- AI 摘要展示横幅 -->
+          <div v-if="currentDoc.aiSummary" class="ai-summary-banner">
+            <div class="summary-label">
+              <el-icon><MagicStick /></el-icon>
+              <span>AI 智能摘要</span>
+            </div>
+            <p class="summary-text">{{ currentDoc.aiSummary }}</p>
           </div>
 
           <div class="editor-content">
@@ -202,7 +247,9 @@ import {
   getDocApi,
   createDocApi,
   updateDocApi,
-  deleteDocApi
+  deleteDocApi,
+  generateDocSummaryApi,
+  searchDocsApi
 } from '@/api/kb'
 import { streamAiChat } from '@/api/ai'
 
@@ -216,6 +263,11 @@ const docs = ref([])
 const currentDoc = ref(null)
 const viewMode = ref('edit')
 const saving = ref(false)
+const summarizing = ref(false)
+
+// 防抖搜索状态
+const searchKeyword = ref('')
+let searchTimer = null
 
 const editorForm = reactive({
   title: '',
@@ -250,6 +302,7 @@ const loadSpaces = async () => {
 }
 
 const handleSpaceChange = async (spaceId) => {
+  searchKeyword.value = ''
   currentDoc.value = null
   await loadDocs(spaceId)
 }
@@ -263,6 +316,7 @@ const handleCreateSpace = async () => {
   spaceDialogVisible.value = false
   spaceForm.name = ''
   spaceForm.description = ''
+  spaceForm.visibility = 0
   await loadSpaces()
   currentSpaceId.value = created.id
   await handleSpaceChange(created.id)
@@ -291,15 +345,17 @@ const handleCreateDoc = async () => {
     contentMd: '# 新文档\n\n在这里开始记录你的知识...'
   })
   ElMessage.success('文档已创建')
+  searchKeyword.value = ''
   await loadDocs(currentSpaceId.value)
   await selectDoc(created.id)
   viewMode.value = 'edit'
 }
 
-const handleSaveDoc = async () => {
-  if (!currentDoc.value) return
+const handleSaveDoc = async (silent = false) => {
+  if (!currentDoc.value) return false
   if (!editorForm.title.trim()) {
-    return ElMessage.warning('文档标题不能为空')
+    ElMessage.warning('文档标题不能为空')
+    return false
   }
   saving.value = true
   try {
@@ -310,10 +366,10 @@ const handleSaveDoc = async () => {
       status: 1
     })
     currentDoc.value = updated
-    // 同步刷新左侧列表标题
     const target = docs.value.find((d) => d.id === updated.id)
     if (target) target.title = updated.title
-    ElMessage.success('保存成功')
+    if (!silent) ElMessage.success('保存成功')
+    return true
   } finally {
     saving.value = false
   }
@@ -328,7 +384,51 @@ const handleDeleteDoc = async (doc) => {
   if (currentDoc.value?.id === doc.id) {
     currentDoc.value = null
   }
-  await loadDocs(currentSpaceId.value)
+  if (searchKeyword.value.trim()) {
+    docs.value = await searchDocsApi(currentSpaceId.value, searchKeyword.value)
+  } else {
+    await loadDocs(currentSpaceId.value)
+  }
+}
+
+// ===== 防抖多字段搜索 =====
+const handleSearchDocs = () => {
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(async () => {
+    if (!currentSpaceId.value) return
+    const kw = searchKeyword.value.trim()
+    docs.value = kw
+      ? await searchDocsApi(currentSpaceId.value, kw)
+      : await listDocsApi(currentSpaceId.value)
+  }, 300)
+}
+
+// ===== 一键生成 AI 摘要（未保存时自动先保存） =====
+const handleGenerateSummary = async () => {
+  if (!currentDoc.value) return
+  if (!editorForm.contentMd.trim()) {
+    return ElMessage.warning('请先填写文档正文再生成摘要')
+  }
+
+  summarizing.value = true
+  try {
+    // 若本地编辑内容与已保存内容不一致，先静默保存再调用 AI
+    const hasUnsavedChanges =
+      editorForm.title !== currentDoc.value.title ||
+      editorForm.contentMd !== (currentDoc.value.contentMd || '')
+    if (hasUnsavedChanges) {
+      const ok = await handleSaveDoc(true)
+      if (!ok) return
+    }
+
+    const updated = await generateDocSummaryApi(currentDoc.value.id)
+    currentDoc.value.aiSummary = updated.aiSummary
+    const target = docs.value.find((d) => d.id === updated.id)
+    if (target) target.aiSummary = updated.aiSummary
+    ElMessage.success('AI 摘要已生成并保存')
+  } finally {
+    summarizing.value = false
+  }
 }
 
 // ===== AI 流式问答逻辑 =====
@@ -429,7 +529,7 @@ const handleLogout = () => {
 
 /* 左栏 */
 .left-sidebar {
-  width: 240px;
+  width: 250px;
   background: #ffffff;
   border-right: 1px solid #e2e8f0;
   display: flex;
@@ -447,6 +547,11 @@ const handleLogout = () => {
   color: #334155;
 }
 
+.sidebar-search {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
 .doc-list {
   flex: 1;
   padding: 8px;
@@ -455,7 +560,7 @@ const handleLogout = () => {
 .doc-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 9px 10px;
   border-radius: 6px;
   cursor: pointer;
@@ -479,6 +584,12 @@ const handleLogout = () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.summary-dot {
+  height: 18px;
+  padding: 0 5px;
+  font-size: 10px;
 }
 
 .doc-delete {
@@ -515,6 +626,30 @@ const handleLogout = () => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.ai-summary-banner {
+  margin: 12px 20px 0;
+  padding: 12px 16px;
+  background: linear-gradient(90deg, #eef2ff 0%, #f5f3ff 100%);
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+}
+
+.summary-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #4338ca;
+  margin-bottom: 4px;
+}
+
+.summary-text {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
 }
 
 .editor-content {

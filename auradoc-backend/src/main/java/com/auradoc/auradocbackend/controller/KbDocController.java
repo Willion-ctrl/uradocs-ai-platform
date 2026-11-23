@@ -1,15 +1,8 @@
 package com.auradoc.auradocbackend.controller;
 
-import com.auradoc.auradocbackend.common.BusinessException;
-import com.auradoc.auradocbackend.common.ErrorCode;
 import com.auradoc.auradocbackend.common.Result;
-import com.auradoc.auradocbackend.dto.DocRequest;
 import com.auradoc.auradocbackend.entity.KbDoc;
-import com.auradoc.auradocbackend.mapper.KbDocMapper;
-import com.auradoc.auradocbackend.mapper.KbSpaceMapper;
-import com.auradoc.auradocbackend.security.UserContext;
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import jakarta.validation.Valid;
+import com.auradoc.auradocbackend.service.KbDocService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,76 +13,50 @@ import java.util.List;
 @RequiredArgsConstructor
 public class KbDocController {
 
-    private final KbDocMapper kbDocMapper;
-    private final KbSpaceMapper kbSpaceMapper;
+    private final KbDocService kbDocService;
 
-    /** 按空间查询文档列表（用于前端左侧目录树） */
+    /** 1. 查询空间下的文档列表 */
     @GetMapping
     public Result<List<KbDoc>> listDocs(@RequestParam Long spaceId) {
-        List<KbDoc> docs = kbDocMapper.selectList(
-                new LambdaQueryWrapper<KbDoc>()
-                        .eq(KbDoc::getSpaceId, spaceId)
-                        .orderByAsc(KbDoc::getParentId)
-                        .orderByAsc(KbDoc::getId)
-        );
-        return Result.success(docs);
+        return Result.success(kbDocService.listDocs(spaceId));
     }
 
-    /** 查询单篇文档详情 */
+    /** 2. 多字段联合检索（放在 /{id} 上方，防止 "search" 被误解析成 Long id） */
+    @GetMapping("/search")
+    public Result<List<KbDoc>> searchDocs(
+            @RequestParam(required = false) Long spaceId,
+            @RequestParam(required = false) String keyword) {
+        return Result.success(kbDocService.searchDocs(spaceId, keyword));
+    }
+
+    /** 3. 获取单篇文档详情 */
     @GetMapping("/{id}")
-    public Result<KbDoc> getDocById(@PathVariable Long id) {
-        KbDoc doc = kbDocMapper.selectById(id);
-        if (doc == null) {
-            throw new BusinessException(ErrorCode.DOC_NOT_FOUND);
-        }
-        return Result.success(doc);
+    public Result<KbDoc> getDoc(@PathVariable Long id) {
+        return Result.success(kbDocService.getDocById(id));
     }
 
-    /** 新建文档 */
+    /** 4. 新建文档 */
     @PostMapping
-    public Result<KbDoc> createDoc(@Valid @RequestBody DocRequest req) {
-        if (kbSpaceMapper.selectById(req.getSpaceId()) == null) {
-            throw new BusinessException(ErrorCode.SPACE_NOT_FOUND);
-        }
-        KbDoc doc = new KbDoc();
-        doc.setSpaceId(req.getSpaceId());
-        doc.setParentId(req.getParentId() != null ? req.getParentId() : 0L);
-        doc.setTitle(req.getTitle());
-        doc.setContentMd(req.getContentMd() != null ? req.getContentMd() : "");
-        doc.setStatus(req.getStatus() != null ? req.getStatus() : 1);
-        doc.setAuthorId(UserContext.getUserId());
-        kbDocMapper.insert(doc);
-        return Result.success(doc);
+    public Result<KbDoc> createDoc(@RequestBody KbDoc req) {
+        return Result.success(kbDocService.createDoc(req));
     }
 
-    /** 更新文档标题与正文 */
+    /** 5. 更新文档 */
     @PutMapping("/{id}")
-    public Result<KbDoc> updateDoc(@PathVariable Long id, @Valid @RequestBody DocRequest req) {
-        KbDoc existing = kbDocMapper.selectById(id);
-        if (existing == null) {
-            throw new BusinessException(ErrorCode.DOC_NOT_FOUND);
-        }
-        if (!existing.getAuthorId().equals(UserContext.getUserId())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-        existing.setTitle(req.getTitle());
-        existing.setContentMd(req.getContentMd() != null ? req.getContentMd() : "");
-        existing.setStatus(req.getStatus() != null ? req.getStatus() : existing.getStatus());
-        kbDocMapper.updateById(existing);
-        return Result.success(existing);
+    public Result<KbDoc> updateDoc(@PathVariable Long id, @RequestBody KbDoc req) {
+        return Result.success(kbDocService.updateDoc(id, req));
     }
 
-    /** 逻辑删除文档 */
+    /** 6. 逻辑删除文档 */
     @DeleteMapping("/{id}")
     public Result<Void> deleteDoc(@PathVariable Long id) {
-        KbDoc existing = kbDocMapper.selectById(id);
-        if (existing == null) {
-            throw new BusinessException(ErrorCode.DOC_NOT_FOUND);
-        }
-        if (!existing.getAuthorId().equals(UserContext.getUserId())) {
-            throw new BusinessException(ErrorCode.FORBIDDEN);
-        }
-        kbDocMapper.deleteById(id);
-        return Result.success();
+        kbDocService.deleteDoc(id);
+        return Result.success(null);
+    }
+
+    /** 7. 一键生成并保存文档 AI 摘要 */
+    @PostMapping("/{id}/summary")
+    public Result<KbDoc> generateSummary(@PathVariable Long id) {
+        return Result.success(kbDocService.generateAiSummary(id));
     }
 }
