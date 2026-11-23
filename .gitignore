@@ -1,11 +1,51 @@
-# IntelliJ IDEA
-.idea/
-*.iml
-
-# Maven 构建产物
-target/
-!.mvn/wrapper/maven-wrapper.jar
-
-# 本地敏感配置（存放数据库密码、AI API Key）
-application-local.yml
+# ==========================================
+# 1. 敏感配置（最关键：防止密码、JWT密钥、API Key 泄露）
+# ==========================================
+**/application-local.yml
+**/application-local.yaml
+**/application-local.properties
 .env
+.env.local
+.env.*.local
+
+# ==========================================
+# 2. Java / Spring Boot / Maven 后端产物
+# ==========================================
+**/target/
+!.mvn/wrapper/maven-wrapper.jar
+*.class
+*.jar
+*.war
+*.ear
+*.log
+hs_err_pid*
+
+# ==========================================
+# 3. Vue 3 / Vite / Node.js 前端产物
+# ==========================================
+**/node_modules/
+**/dist/
+**/dist-ssr/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ==========================================
+# 4. IDE 工程配置（IntelliJ IDEA & VS Code）
+# ==========================================
+.idea/
+*.iws
+*.iml
+*.ipr
+out/
+.vscode/*
+!.vscode/extensions.json
+
+# ==========================================
+# 5. 操作系统垃圾文件
+# ==========================================
+.DS_Store
+Thumbs.db
+desktop.ini
